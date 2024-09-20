@@ -61,7 +61,6 @@ df = pd.DataFrame({
 })
 
 fplm = FPLPointsModel()
-fplm.build_model(df, points)
 fplm.fit(df, points)
 
 # Get predicted points
