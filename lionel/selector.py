@@ -112,12 +112,26 @@ class BaseSelector(ABC):
         """
         pass
 
-    @abstractmethod
-    def _add_position_constraints():
+    def _add_position_constraints(self, prob, players, positions):
         """
-        Abstract method for adding position constraints.
+        Adds position constraints to the optimization problem.
+
+        Args:
+            prob (LpProblem): The optimization problem.
+
+        Returns:
+            LpProblem: The optimization problem with added position constraints.
         """
-        pass
+        for pos in ["GK", "DEF", "MID", "FWD"]:
+            prob += (
+                lpSum(players[i] for i in range(len(players)) if positions[i] == pos)
+                >= self.POS_CONSTRAINTS[pos][0]
+            )
+            prob += (
+                lpSum(players[i] for i in range(len(players)) if positions[i] == pos)
+                <= self.POS_CONSTRAINTS[pos][1]
+            )
+        return prob
 
 
 class XISelector(BaseSelector):
@@ -135,9 +149,9 @@ class XISelector(BaseSelector):
     """
 
     POS_CONSTRAINTS = {
-        "DEF": [5, 3],
-        "FWD": [3, 1],
-        "MID": [5, 2],
+        "DEF": [3, 5],
+        "FWD": [1, 3],
+        "MID": [2, 5],
         "GK": [1, 1],
     }
 
@@ -171,6 +185,7 @@ class XISelector(BaseSelector):
         self.data = data
         self.xv = data[data.xv == 1]
         self.y = self.xv[self.pred_var].values
+        self.positions = self.xv.position.values
         assert self.xv.shape[0] == 15
 
         self.players = [LpVariable(str(i), cat="Binary") for i in self.xv.index]
@@ -178,7 +193,7 @@ class XISelector(BaseSelector):
 
         prob += lpSum(self.players[i] * self.y[i] for i in range(len(self.xv)))
         prob += sum(self.players) == 11
-        prob = self._add_position_constraints(prob)
+        prob = self._add_position_constraints(prob, self.players, self.positions)
         self.prob = prob
         return self.prob
 
@@ -195,32 +210,6 @@ class XISelector(BaseSelector):
         self.xv.loc[self.xv.index.isin(picked_idx), "xi"] = 1
         self.data.loc[self.data.index.isin(picked_idx), "xi"] = 1
         return self.data
-
-    def _add_position_constraints(self, prob):
-        """
-        Adds position constraints to the optimization problem.
-
-        Args:
-            prob (LpProblem): The optimization problem.
-
-        Returns:
-            LpProblem: The optimization problem with added position constraints.
-        """
-        positions = self.xv.position.to_list()
-        for pos in ["GK", "DEF", "MID", "FWD"]:
-            prob += (
-                lpSum(
-                    self.players[i] for i in range(len(self.xv)) if positions[i] == pos
-                )
-                <= self.POS_CONSTRAINTS[pos][0]
-            )
-            prob += (
-                lpSum(
-                    self.players[i] for i in range(len(self.xv)) if positions[i] == pos
-                )
-                >= self.POS_CONSTRAINTS[pos][1]
-            )
-        return prob
 
 
 class NewXVSelector(BaseSelector):
@@ -242,10 +231,10 @@ class NewXVSelector(BaseSelector):
     """
 
     POS_CONSTRAINTS = {
-        "DEF": 5,
-        "FWD": 3,
-        "MID": 5,
-        "GK": 2,
+        "DEF": [5, 5],
+        "FWD": [3, 3],
+        "MID": [5, 5],
+        "GK": [2, 2],
     }
 
     def __init__(
@@ -285,6 +274,7 @@ class NewXVSelector(BaseSelector):
         self.captains = [LpVariable("c_" + str(i), cat="Binary") for i in data.index]
         self.teams = self.data.team_name.values
         self.values = self.data.value.values
+        self.positions = self.data.position.values
 
         prob = LpProblem("FPL Player Choices", LpMaximize)
         j = self.data.columns.get_loc(self.pred_var)
@@ -297,7 +287,7 @@ class NewXVSelector(BaseSelector):
         prob += sum(self.players) == 15
         prob = self._add_budget_constraints(prob)
         prob += sum(self.captains) == 1
-        prob = self._add_position_constraints(prob, self.players, self.data)
+        prob = self._add_position_constraints(prob, self.players, self.positions)
         prob = self._add_club_constraints(prob)
         prob = self._add_captain_constraints(prob)
         self.prob = prob
@@ -320,9 +310,6 @@ class NewXVSelector(BaseSelector):
 
         self.data["xv"] = np.where(self.data.index.isin(xv_idx), 1, 0)
         self.data["captain"] = np.where(self.data.index.isin(cap_idx), 1, 0)
-
-        # self.data.loc[self.data.index.isin(xv_idx), "xv"] = 1
-        # self.data.loc[self.data.index.isin(cap_idx), "captain"] = 1
         return self.data
 
     def _add_budget_constraints(self, prob):
@@ -374,26 +361,6 @@ class NewXVSelector(BaseSelector):
         """
         for i in range(len(self.data)):
             prob += (self.players[i] - self.captains[i]) >= 0
-        return prob
-
-    def _add_position_constraints(self, prob, players, df):
-        """
-        Adds position constraints to the optimization problem.
-
-        Args:
-            prob (LpProblem): The optimization problem.
-            players (list): The list of player variables.
-            df (pd.DataFrame): The input data.
-
-        Returns:
-            LpProblem: The optimization problem with added position constraints.
-        """
-        positions = df.position.to_list()
-        for pos in ["GK", "DEF", "MID", "FWD"]:
-            prob += (
-                lpSum(players[i] for i in range(len(df)) if positions[i] == pos)
-                <= self.POS_CONSTRAINTS[pos]
-            )
         return prob
 
 
